@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Εργαλείο Υπογραφής PDF</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; color: #333; padding: 20px; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #2c3e50; font-size: 24px; }
+        .lang-selector { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+        .lang-selector select { padding: 5px 10px; border-radius: 5px; font-size: 14px; cursor: pointer; border: 1px solid #ccc; }
+        
+        .controls { display: flex; flex-direction: column; align-items: center; gap: 15px; margin-bottom: 20px; }
+        input[type="file"], input[type="range"] { padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; max-width: 300px; box-sizing: border-box; }
+        
+        #signature-pad { border: 2px dashed #3498db; background-color: #fdfdfd; cursor: crosshair; touch-action: none; max-width: 100%; }
+        
+        .btn { padding: 10px 20px; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 16px; width: 100%; max-width: 300px; }
+        .btn-primary { background-color: #3498db; } .btn-primary:hover { background-color: #2980b9; }
+        .btn-danger { background-color: #e74c3c; } .btn-danger:hover { background-color: #c0392b; }
+        .btn-success { background-color: #2ecc71; } .btn-success:hover { background-color: #27ae60; }
+        .btn-warning { background-color: #f39c12; } .btn-warning:hover { background-color: #d68910; }
+        .btn-purple { background-color: #8e44ad; } .btn-purple:hover { background-color: #732d91; }
+
+        .page-controls { display: none; align-items: center; justify-content: center; gap: 10px; margin-bottom: 10px; width: 100%; }
+        .page-btn { padding: 8px 12px; background-color: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .page-info { font-weight: bold; font-size: 16px; min-width: 100px; text-align: center; }
+
+        #pdf-container { text-align: center; overflow: auto; border: 1px solid #ddd; display: none; background: #eee; padding: 10px; border-radius: 5px; }
+        #pdf-wrapper { position: relative; display: inline-block; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        #pdf-canvas { display: block; max-width: 100%; height: auto; }
+        
+        #draggable-sig { display: none; position: absolute; top: 20px; left: 20px; cursor: grab; z-index: 10; touch-action: none; border: 1px dashed rgba(231, 76, 60, 0.8); background-color: rgba(52, 152, 219, 0.1); }
+        .stamped-sig { position: absolute; pointer-events: none; z-index: 5; opacity: 0.8; }
+        
+        #signatures-list { margin-top: 10px; font-size: 14px; color: #555; text-align: center; }
+        
+        #action-buttons { display: none; width: 100%; max-width: 300px; flex-direction: column; gap: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="lang-selector">
+        <select id="lang-select" onchange="changeLanguage()">
+            <option value="el">🇬🇷 Ελληνικά</option>
+            <option value="en">🇬🇧 English</option>
+            <option value="fr">🇫🇷 Français</option>
+            <option value="de">🇩🇪 Deutsch</option>
+            <option value="es">🇪🇸 Español</option>
+            <option value="it">🇮🇹 Italiano</option>
+        </select>
+    </div>
+
+    <h1 id="t-title">Εργαλείο Υπογραφής PDF</h1>
+    
+    <div class="controls">
+        <label><strong id="t-step1">1. Επίλεξε ένα PDF:</strong></label>
+        <input type="file" id="pdf-upload" accept="application/pdf" />
+
+        <label><strong id="t-step2">2. Ζωγράφισε την υπογραφή σου:</strong></label>
+        <canvas id="signature-pad" width="400" height="150"></canvas>
+        <button class="btn btn-danger" id="t-clear">Καθαρισμός Υπογραφής</button>
+
+        <button class="btn btn-primary" id="t-step3" style="display: none;">3. Τοποθέτηση Υπογραφής</button>
+
+        <div id="sig-controls" style="display: none; width: 100%; max-width: 300px; text-align: center; flex-direction: column; gap: 10px;">
+            <label><strong id="t-size">Μέγεθος:</strong></label>
+            <input type="range" id="sig-size" min="50" max="300" value="150">
+            <button class="btn btn-warning" id="t-apply">📌 Εφαρμογή στη Σελίδα</button>
+        </div>
+        
+        <div id="signatures-list"></div>
+
+        <div id="action-buttons">
+            <button class="btn btn-success" id="t-download">⬇️ Αποθήκευση & Κατέβασμα</button>
+            <button class="btn btn-purple" id="t-share">📤 Αποστολή Αρχείου</button>
+        </div>
+    </div>
+
+    <div class="page-controls" id="page-controls">
+        <button class="page-btn" id="prev-page">◀</button>
+        <span class="page-info" id="page-info">Σελ. 1 / 1</span>
+        <button class="page-btn" id="next-page">▶</button>
+    </div>
+
+    <div id="pdf-container">
+        <div id="pdf-wrapper">
+            <canvas id="pdf-canvas"></canvas>
+            <img id="draggable-sig" alt="Η Υπογραφή σου" />
+        </div>
+    </div>
+</div>
+<script>
+    // --- ΜΕΤΑΦΡΑΣΕΙΣ ---
+    const translations = {
+        el: {
+            title: "Εργαλείο Υπογραφής PDF", step1: "1. Επίλεξε ένα PDF:", step2: "2. Ζωγράφισε την υπογραφή σου:", clear: "Καθαρισμός Υπογραφής",
+            step3: "3. Τοποθέτηση Υπογραφής", size: "Μέγεθος:", apply: "📌 Εφαρμογή στη Σελίδα", download: "⬇️ Αποθήκευση & Κατέβασμα",
+            pageWord: "Σελ.", alertEmpty: "Δεν έχεις τοποθετήσει καμία υπογραφή στο έγγραφο.", alertApplied: "Η υπογραφή τοποθετήθηκε στη Σελίδα",
+            alertNextStep: "Μπορείς να πας σε άλλη σελίδα ή να πατήσεις 'Αποθήκευση'.", sigsPlacedText: "Έχουν τοποθετηθεί υπογραφές στις σελίδες: ", 
+            shareBtn: "📤 Αποστολή Αρχείου", shareFileText: "Σου στέλνω το υπογεγραμμένο έγγραφο."
+        },
+        en: {
+            title: "PDF Signature Tool", step1: "1. Select a PDF:", step2: "2. Draw your signature:", clear: "Clear Signature",
+            step3: "3. Place Signature", size: "Size:", apply: "📌 Apply to Page", download: "⬇️ Save & Download",
+            pageWord: "Page", alertEmpty: "You haven't applied any signatures to the document.", alertApplied: "Signature applied to Page",
+            alertNextStep: "You can change pages or click 'Save'.", sigsPlacedText: "Signatures applied on pages: ", 
+            shareBtn: "📤 Share File", shareFileText: "Here is the signed document."
+        },
+        fr: {
+            title: "Outil de Signature PDF", step1: "1. Sélectionnez un PDF :", step2: "2. Dessinez votre signature :", clear: "Effacer la signature",
+            step3: "3. Placer la signature", size: "Taille :", apply: "📌 Appliquer à la page", download: "⬇️ Enregistrer & Télécharger",
+            pageWord: "Page", alertEmpty: "Aucune signature n'a été appliquée au document.", alertApplied: "Signature appliquée à la page",
+            alertNextStep: "Vous pouvez changer de page ou cliquer sur 'Enregistrer'.", sigsPlacedText: "Signatures appliquées sur les pages : ", 
+            shareBtn: "📤 Partager le fichier", shareFileText: "Voici le document signé."
+        },
+        de: {
+            title: "PDF-Signatur-Tool", step1: "1. PDF auswählen:", step2: "2. Unterschrift zeichnen:", clear: "Unterschrift löschen",
+            step3: "3. Unterschrift platzieren", size: "Größe:", apply: "📌 Auf Seite anwenden", download: "⬇️ Speichern & Herunterladen",
+            pageWord: "Seite", alertEmpty: "Es wurden keine Unterschriften auf das Dokument angewendet.", alertApplied: "Unterschrift angewendet auf Seite",
+            alertNextStep: "Sie können die Seite wechseln oder auf 'Speichern' klicken.", sigsPlacedText: "Unterschriften angewendet auf Seiten: ", 
+            shareBtn: "📤 Datei teilen", shareFileText: "Hier ist das signierte Dokument."
+        },
+        es: {
+            title: "Herramienta de Firma PDF", step1: "1. Seleccione un PDF:", step2: "2. Dibuje su firma:", clear: "Borrar firma",
+            step3: "3. Colocar firma", size: "Tamaño:", apply: "📌 Aplicar a la página", download: "⬇️ Guardar y Descargar",
+            pageWord: "Pág.", alertEmpty: "No has aplicado ninguna firma al documento.", alertApplied: "Firma aplicada en la página",
+            alertNextStep: "Puedes cambiar de página o hacer clic en 'Guardar'.", sigsPlacedText: "Firmas aplicadas en las páginas: ", 
+            shareBtn: "📤 Compartir Archivo", shareFileText: "Aquí está el documento firmado."
+        },
+        it: {
+            title: "Strumento di Firma PDF", step1: "1. Seleziona un PDF:", step2: "2. Disegna la tua firma:", clear: "Cancella firma",
+            step3: "3. Posiziona firma", size: "Dimensione:", apply: "📌 Applica alla pagina", download: "⬇️ Salva e Scarica",
+            pageWord: "Pag.", alertEmpty: "Non hai applicato alcuna firma al documento.", alertApplied: "Firma applicata alla pagina",
+            alertNextStep: "Puoi cambiare pagina o cliccare su 'Salva'.", sigsPlacedText: "Firme applicate sulle pagine: ", 
+            shareBtn: "📤 Condividi file", shareFileText: "Ecco il documento firmato."
+        }
+    };
+
+    let currentLang = 'el';
+
+    function changeLanguage() {
+        currentLang = document.getElementById('lang-select').value;
+        const t = translations[currentLang];
+        document.getElementById('t-title').textContent = t.title;
+        document.getElementById('t-step1').textContent = t.step1;
+        document.getElementById('t-step2').textContent = t.step2;
+        document.getElementById('t-clear').textContent = t.clear;
+        document.getElementById('t-step3').textContent = t.step3;
+        document.getElementById('t-size').textContent = t.size;
+        document.getElementById('t-apply').textContent = t.apply;
+        document.getElementById('t-download').textContent = t.download;
+        document.getElementById('t-share').textContent = t.shareBtn;
+        
+        if (totalPages > 1 || pageNum > 0) document.getElementById('page-info').textContent = `${t.pageWord} ${pageNum} / ${totalPages}`;
+        updateSignaturesList();
+    }
+
+    // --- ΛΟΓΙΚΗ PDF ---
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    let pdfBytes = null; let pdfDocPreview = null; let pageNum = 1; let totalPages = 0;
+    let appliedSignatures = []; let currentSigDataUrl = null; let baseFileName = "document";
+
+    const canvasPad = document.getElementById('signature-pad'); 
+    const ctxPad = canvasPad.getContext('2d'); 
+    let isDrawing = false;
+    
+    // ΕΠΙΔΙΟΡΘΩΣΗ: Ακριβής υπολογισμός αφής/ποντικιού ανεξαρτήτως μεγέθους οθόνης
+    function getPointerPos(canvas, clientX, clientY) { 
+        const rect = canvas.getBoundingClientRect(); 
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return { 
+            x: (clientX - rect.left) * scaleX, 
+            y: (clientY - rect.top) * scaleY 
+        }; 
+    }
+    
+    // Ποντίκι
+    canvasPad.addEventListener('mousedown', (e) => { isDrawing = true; const pos = getPointerPos(canvasPad, e.clientX, e.clientY); ctxPad.beginPath(); ctxPad.moveTo(pos.x, pos.y); });
+    canvasPad.addEventListener('mousemove', (e) => { if(isDrawing) { const pos = getPointerPos(canvasPad, e.clientX, e.clientY); ctxPad.lineTo(pos.x, pos.y); ctxPad.stroke(); }});
+    canvasPad.addEventListener('mouseup', () => isDrawing = false);
+    canvasPad.addEventListener('mouseout', () => isDrawing = false);
+
+    // Αφή (Κινητό)
+    canvasPad.addEventListener('touchstart', (e) => { e.preventDefault(); isDrawing = true; const pos = getPointerPos(canvasPad, e.touches[0].clientX, e.touches[0].clientY); ctxPad.beginPath(); ctxPad.moveTo(pos.x, pos.y); }, { passive: false });
+    canvasPad.addEventListener('touchmove', (e) => { e.preventDefault(); if (isDrawing) { const pos = getPointerPos(canvasPad, e.touches[0].clientX, e.touches[0].clientY); ctxPad.lineTo(pos.x, pos.y); ctxPad.stroke(); } }, { passive: false });
+    canvasPad.addEventListener('touchend', () => isDrawing = false);
+    canvasPad.addEventListener('touchcancel', () => isDrawing = false);
+
+    document.getElementById('t-clear').addEventListener('click', () => {
+        ctxPad.clearRect(0, 0, canvasPad.width, canvasPad.height);
+        document.getElementById('draggable-sig').style.display = 'none';
+        document.getElementById('sig-controls').style.display = 'none';
+    });
+
+    const fileInput = document.getElementById('pdf-upload'); const pdfCanvas = document.getElementById('pdf-canvas'); const ctxPdf = pdfCanvas.getContext('2d');
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file && file.type === "application/pdf") {
+            baseFileName = file.name.replace('.pdf', ''); // Αποθήκευση του αρχικού ονόματος
+            const arrayBuffer = await file.arrayBuffer(); pdfBytes = arrayBuffer; 
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer }); pdfDocPreview = await loadingTask.promise;
+            totalPages = pdfDocPreview.numPages; pageNum = 1; appliedSignatures = []; updateSignaturesList();
+            await renderPage(pageNum);
+            document.getElementById('pdf-container').style.display = 'block'; document.getElementById('t-step3').style.display = 'block';
+            document.getElementById('page-controls').style.display = totalPages > 1 ? 'flex' : 'none';
+            document.getElementById('action-buttons').style.display = 'none';
+        }
+    });
+
+    async function renderPage(num) {
+        const page = await pdfDocPreview.getPage(num); const viewport = page.getViewport({ scale: 1.5 }); 
+        pdfCanvas.height = viewport.height; pdfCanvas.width = viewport.width;
+        await page.render({ canvasContext: ctxPdf, viewport: viewport }).promise;
+        document.getElementById('page-info').textContent = `${translations[currentLang].pageWord} ${num} / ${totalPages}`;
+        drawStampedSignatures(num);
+    }
+
+    document.getElementById('prev-page').addEventListener('click', () => { if (pageNum <= 1) return; pageNum--; renderPage(pageNum); document.getElementById('draggable-sig').style.display = 'none'; });
+    document.getElementById('next-page').addEventListener('click', () => { if (pageNum >= totalPages) return; pageNum++; renderPage(pageNum); document.getElementById('draggable-sig').style.display = 'none'; });
+
+    const draggableSig = document.getElementById('draggable-sig'); const pdfWrapper = document.getElementById('pdf-wrapper'); const sizeSlider = document.getElementById('sig-size');
+    document.getElementById('t-step3').addEventListener('click', () => {
+        currentSigDataUrl = canvasPad.toDataURL('image/png'); draggableSig.src = currentSigDataUrl; draggableSig.style.width = sizeSlider.value + 'px'; draggableSig.style.display = 'block';
+        document.getElementById('sig-controls').style.display = 'flex'; 
+        document.getElementById('action-buttons').style.display = 'flex'; 
+        pdfWrapper.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    sizeSlider.addEventListener('input', (e) => draggableSig.style.width = e.target.value + 'px' );
+
+    let isDraggingSig = false; let dragOffsetX = 0, dragOffsetY = 0;
+    function startDrag(e) { e.preventDefault(); isDraggingSig = true; const evt = e.type.includes('touch') ? e.touches[0] : e; const rect = draggableSig.getBoundingClientRect(); dragOffsetX = evt.clientX - rect.left; dragOffsetY = evt.clientY - rect.top; }
+    function doDrag(e) { if (!isDraggingSig) return; e.preventDefault(); const evt = e.type.includes('touch') ? e.touches[0] : e; const wrapperRect = pdfWrapper.getBoundingClientRect(); let newLeft = evt.clientX - wrapperRect.left - dragOffsetX; let newTop = evt.clientY - wrapperRect.top - dragOffsetY; if(newLeft < 0) newLeft = 0; if(newTop < 0) newTop = 0; draggableSig.style.left = newLeft + 'px'; draggableSig.style.top = newTop + 'px'; }
+    function endDrag() { isDraggingSig = false; }
+    draggableSig.addEventListener('mousedown', startDrag); document.addEventListener('mousemove', doDrag); document.addEventListener('mouseup', endDrag);
+    draggableSig.addEventListener('touchstart', startDrag, { passive: false }); document.addEventListener('touchmove', doDrag, { passive: false }); document.addEventListener('touchend', endDrag);
+
+    document.getElementById('t-apply').addEventListener('click', async () => {
+        if (!pdfDocPreview) return;
+        const sigRect = draggableSig.getBoundingClientRect(); const canvasRect = pdfCanvas.getBoundingClientRect();
+        const actualX = (sigRect.left - canvasRect.left) * (pdfCanvas.width / canvasRect.width); const actualY = (sigRect.top - canvasRect.top) * (pdfCanvas.height / canvasRect.height);
+        const actualWidth = sigRect.width * (pdfCanvas.width / canvasRect.width); const actualHeight = sigRect.height * (pdfCanvas.height / canvasRect.height);
+
+        const page = await pdfDocPreview.getPage(pageNum); const viewport = page.getViewport({ scale: 1.5 });
+        const finalX = actualX * (viewport.viewBox[2] / pdfCanvas.width); const finalWidth = actualWidth * (viewport.viewBox[2] / pdfCanvas.width); const finalHeight = actualHeight * (viewport.viewBox[3] / pdfCanvas.height);
+        const finalY = viewport.viewBox[3] - (actualY * (viewport.viewBox[3] / pdfCanvas.height)) - finalHeight;
+
+        appliedSignatures.push({ page: pageNum, x: finalX, y: finalY, width: finalWidth, height: finalHeight, imgDataUrl: currentSigDataUrl, cssX: draggableSig.style.left, cssY: draggableSig.style.top, cssW: draggableSig.style.width });
+        draggableSig.style.display = 'none'; updateSignaturesList(); drawStampedSignatures(pageNum);
+        alert(`${translations[currentLang].alertApplied} ${pageNum}! ${translations[currentLang].alertNextStep}`);
+    });
+
+    function drawStampedSignatures(pageNumber) {
+        document.querySelectorAll('.stamped-sig').forEach(el => el.remove());
+        appliedSignatures.filter(s => s.page === pageNumber).forEach(sig => {
+            const img = document.createElement('img'); img.src = sig.imgDataUrl; img.className = 'stamped-sig'; img.style.left = sig.cssX; img.style.top = sig.cssY; img.style.width = sig.cssW;
+            document.getElementById('pdf-wrapper').appendChild(img);
+        });
+    }
+
+    function updateSignaturesList() {
+        const listDiv = document.getElementById('signatures-list');
+        if (appliedSignatures.length === 0) { listDiv.innerHTML = ""; return; }
+        const pages = [...new Set(appliedSignatures.map(s => s.page))].sort();
+        listDiv.innerHTML = `<strong>${translations[currentLang].sigsPlacedText}</strong> ${pages.join(', ')}`;
+    }
+
+    // --- ΚΟΙΝΗ ΣΥΝΑΡΤΗΣΗ ΓΙΑ ΔΗΜΙΟΥΡΓΙΑ ΤΟΥ ΤΕΛΙΚΟΥ ΑΡΧΕΙΟΥ PDF ---
+    async function createSignedPdfBlob() {
+        const { PDFDocument } = PDFLib; 
+        const pdfDoc = await PDFDocument.load(pdfBytes); 
+        const pages = pdfDoc.getPages();
+        
+        // Φορτώνουμε και ζωγραφίζουμε ΟΛΕΣ τις υπογραφές μία-μία
+        for (const sig of appliedSignatures) {
+            const signatureImage = await pdfDoc.embedPng(sig.imgDataUrl);
+            pages[sig.page - 1].drawImage(signatureImage, { x: sig.x, y: sig.y, width: sig.width, height: sig.height });
+        }
+        
+        const pdfBytesModified = await pdfDoc.save(); 
+        return new Blob([pdfBytesModified], { type: "application/pdf" });
+    }
+
+    // --- Γεννήτρια Μοναδικού Ονόματος (Για να μην μπερδεύεται το Gmail) ---
+    function getUniqueFileName() {
+        const timestamp = new Date().getTime(); // Προσθέτει τη χρονική στιγμή
+        return `signed_${baseFileName}_${timestamp}.pdf`;
+    }
+
+    // 1. ΚΑΤΕΒΑΣΜΑ
+    document.getElementById('t-download').addEventListener('click', async () => {
+        if (!pdfBytes || appliedSignatures.length === 0) { alert(translations[currentLang].alertEmpty); return; }
+        
+        const blob = await createSignedPdfBlob();
+        const link = document.createElement('a'); 
+        const url = URL.createObjectURL(blob);
+        link.href = url; 
+        link.download = getUniqueFileName(); 
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+    });
+
+    // 2. ΕΓΓΕΝΗΣ ΚΟΙΝΟΠΟΙΗΣΗ ΑΡΧΕΙΟΥ (NATIVE SHARE) ΣΤΟ ΚΙΝΗΤΟ
+    document.getElementById('t-share').addEventListener('click', async () => {
+        if (!pdfBytes || appliedSignatures.length === 0) { alert(translations[currentLang].alertEmpty); return; }
+        
+        try {
+            const blob = await createSignedPdfBlob();
+            // Φτιάχνουμε ένα File object με το μοναδικό όνομα!
+            const file = new File([blob], getUniqueFileName(), { type: "application/pdf" });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    files: [file],
+                    title: translations[currentLang].title,
+                    text: translations[currentLang].shareFileText
+                });
+            } else {
+                alert("Η συσκευή ή ο browser σου δεν υποστηρίζει την απευθείας κοινοποίηση αρχείου. Πάτα 'Κατέβασμα' και στείλε το χειροκίνητα.");
+            }
+        } catch (error) {
+            console.error("Σφάλμα κατά την κοινοποίηση:", error);
+        }
+    });
+
+    changeLanguage();
+      </script>
+      
