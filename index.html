@@ -338,5 +338,26 @@
     });
 
     changeLanguage();
+    // --- ΛΟΓΙΚΗ WEB APP (PWA) ---
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
+
+    let deferredPrompt;
+    const installBanner = document.getElementById('install-banner');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        installBanner.style.display = 'block'; // Εμφάνιση του banner
+    });
+
+    installBanner.addEventListener('click', async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') { installBanner.style.display = 'none'; }
+            deferredPrompt = null;
+        }
+    });
+
       </script>
       
