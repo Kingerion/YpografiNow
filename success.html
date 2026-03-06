@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Επιτυχής Πληρωμή | 2Fast Delivery</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #F1F5F9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+        .card { background: white; padding: 40px 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-width: 400px; width: 90%; }
+        .icon { font-size: 60px; margin-bottom: 20px; }
+        h1 { color: #1E293B; font-size: 24px; margin-bottom: 10px; }
+        p { color: #64748b; font-size: 15px; line-height: 1.5; margin-bottom: 25px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #10b981; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #statusText { font-weight: bold; color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">✅</div>
+        <h1>Η πληρωμή πέτυχε!</h1>
+        <p>Το ποσό κρατήθηκε με επιτυχία από την κάρτα σας.</p>
+        <div class="loader" id="loader"></div>
+        <div id="statusText">Αποστολή παραγγελίας στον διανομέα...</div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyDHmXVo-2kFvCFN3Q8U_MvJl_By_b6hs2w",
+            authDomain: "fast-delivery-8227d.firebaseapp.com",
+            projectId: "fast-delivery-8227d",
+            storageBucket: "fast-delivery-8227d.firebasestorage.app",
+            messagingSenderId: "751019896171",
+            appId: "1:751019896171:web:44530a82b4f016fb1ef02e"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const SHIPDAY_URL = "https://script.google.com/macros/s/AKfycbyWoTtkdD_krJ20SutUK0Yp9WlRIuUwFGE3D88lSuG97j_6WP1DqvYbYcMvsL8ZYrLMcg/exec";
+
+        window.onload = function() {
+            const pendingOrderStr = localStorage.getItem('pendingOrder');
+            if (!pendingOrderStr) {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('statusText').innerText = "Δεν βρέθηκε εκκρεμής παραγγελία. Αν έχετε πληρώσει, καλέστε μας.";
+                document.getElementById('statusText').style.color = "red";
+                setTimeout(() => { window.location.href = "index.html"; }, 4000);
+                return;
+            }
+
+            const payload = JSON.parse(pendingOrderStr);
+
+            // ΦΤΙΑΧΝΟΥΜΕ ΤΑ ΤΕΛΕΙΑ ΣΧΟΛΙΑ ΓΙΑ ΤΟΝ ΔΙΑΝΟΜΕΑ!
+            const prodVal = parseFloat(payload.productValue || 0);
+            const delivVal = parseFloat(payload.deliveryPrice || 0);
+            const total = prodVal + delivVal;
+
+            let driverNotes = `🟢 ONLINE ΠΛΗΡΩΜΕΝΟ: ${total.toFixed(2)}€ | ΚΕΡΔΟΣ ΔΙΑΝΟΜΕΑ: ${delivVal.toFixed(2)}€`;
+            if (prodVal > 0) {
+                driverNotes += ` | ΑΞΙΑ ΠΡΟΪΟΝΤΩΝ (Αγορά από διανομέα): ${prodVal.toFixed(2)}€`;
+            }
+            driverNotes += ` | ΣΧΟΛΙΑ ΠΕΛΑΤΗ: ${payload.originalNotes}`;
+
+            payload.notes = driverNotes;
+
+            // 1. Αποθήκευση στο Firebase Ιστορικό
+            const orderData = {
+                customerPhone: payload.deliveryPhone,
+                date: new Date().toISOString(),
+                displayDate: new Date().toLocaleDateString('el-GR') + ' - ' + new Date().toLocaleTimeString('el-GR', {hour: '2-digit', minute:'2-digit'}),
+                address: payload.endAddr,
+                price: payload.price, 
+                status: "Νέα Παραγγελία (Πληρώθηκε Online)"
+            };
+
+            db.collection("orders").add(orderData);
+            let history = JSON.parse(localStorage.getItem('orderHistory')) || [];
+            history.unshift(orderData);
+            localStorage.setItem('orderHistory', JSON.stringify(history));
+
+            // 2. Αποστολή στο Shipday
+            fetch(SHIPDAY_URL, { method: 'POST', body: JSON.stringify(payload) })
+            .then(() => {
+                localStorage.removeItem('pendingOrder'); // Καθαρισμός μνήμης
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('statusText').innerText = "✅ Η παραγγελία στάλθηκε επιτυχώς στον οδηγό!";
+                document.getElementById('statusText').style.color = "#10b981";
+                setTimeout(() => { window.location.href = "index.html"; }, 3000);
+            }).catch(() => {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('statusText').innerText = "✅ Η παραγγελία καταχωρήθηκε!";
+                setTimeout(() => { window.location.href = "index.html"; }, 3000);
+            });
+        };
+    </script>
+</body>
+</html>
